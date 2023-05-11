@@ -3,6 +3,7 @@
 Usage:
     morph.py train [--train-config=<train-config>]
     morph.py fake-train [--train-config=<train-config>]
+    morph.py inference <model-file> [--train-config=<train-config>]
 
 Options:
     -h --help                       Show this screen.
@@ -25,19 +26,21 @@ import random
 import train_utils
 import model as m
 import model_utils as mu
+import sample
 
 # Setup for distributed training
 
-MASTER_PORT = str(random.randint(10000, 20000))
-
 def setup_parallel(rank, world_size):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = MASTER_PORT
+    os.environ['MASTER_ADDR'] = '0.0.0.0'
+    os.environ['MASTER_PORT'] = '12345'
     os.environ['WORLD_SIZE'] = str(world_size)
 
     print("Initializing process group...")
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     print("Process group initialized.")
+
+    torch.cuda.set_device(rank)
+
 
 def cleanup_parallel():
     dist.destroy_process_group()
@@ -73,6 +76,35 @@ def train_setup(rank, train_config):
 
     return writer
 
+def get_test_loss(model, device, test_loader, test_iter, train_config):
+    model.eval()
+    test_loss = 0
+
+    if test_iter is None:
+        test_iter = iter(test_loader)
+
+    N = train_config['training']['options']['test_loss_batches']
+
+    for i in range(N):
+        try:
+            batch = next(test_iter)
+        except StopIteration:
+            test_iter = iter(test_loader)
+            batch = next(test_iter)
+
+        with torch.no_grad():
+            ###########################
+            # CUSTOM LOSS LOGIC :O    #
+            ###########################
+
+            x = batch['pixels'].unsqueeze(1)
+            timesteps = torch.rand((x.shape[0],))
+            loss = mu.denoising_score_estimation(model, x.to(device), timesteps.to(device))
+            
+            ###########################
+
+    model.train()
+    return torch.tensor(test_loss / N)
 
 def train_internal(rank, world_size, train_config):
     # Create directories and setup tensorboard
@@ -87,6 +119,14 @@ def train_internal(rank, world_size, train_config):
 
     loader_batch_size = BATCH_SIZE // NUM_GPUS // ACCUMULATION
 
+    if rank == 0:
+        print()
+        print("\"Batch Size\":", BATCH_SIZE)
+        print("Number of GPUs: ", NUM_GPUS)
+        print("Accumulation: ", ACCUMULATION)
+        print("Actual Batch Size: ", loader_batch_size)
+        print()
+
     # Load the dataset and partition it by GPU
     train_dataloader, test_dataloader = train_utils.prepare_dataset(
         rank=rank,
@@ -96,16 +136,20 @@ def train_internal(rank, world_size, train_config):
 
     # Model and Optimizer
     # TODO: Options here?
-    device = torch.device("cuda")
 
-    model = m.get_model(train_config).to(device)
+    model = m.get_model(train_config)
     optimizer_config = train_config['training']['optimizer']
 
     # Adjust the learning rate for the grad accumulation
     optimizer_config['lr'] /= ACCUMULATION
 
-    optimizer = torch.optim.Adam(model.parameters, **optimizer_config)
-
+    if rank==0:
+        print()
+        print("OPTIMIZER CONFIG")
+        print(optimizer_config)
+        print()
+    optimizer = torch.optim.Adam(model.parameters(), **optimizer_config)
+    
     # Scheduler and Scaler
     # TODO: What if train_dataloader doesn't have a clean len for streaming or something
 
@@ -140,7 +184,18 @@ def train_internal(rank, world_size, train_config):
     total_examples = 0
     lowest_loss = 10e10
 
+    test_iter = None
+
+    print()
+    print("############")
+    print("# Training #")
+    print("############")
+    print()
+
     for epoch in range(EPOCHS):
+        if rank == 0:
+            print()
+            print("Epoch", epoch)
         loader = iter(train_dataloader)
 
         for i, batch in enumerate(tqdm.tqdm(loader)):
@@ -151,22 +206,24 @@ def train_internal(rank, world_size, train_config):
             # CUSTOM LOSS LOGIC :O    #
             ###########################
 
-            x = batch['pixels']
+            x = batch['pixels'].unsqueeze(1)
+            
             timesteps = torch.rand((x.shape[0],))
 
             with torch.autocast(device_type='cuda', dtype=train_dtype):
-                loss = mu.denoising_score_estimation(model, x.to(device), timesteps.to(device))
+                loss = mu.denoising_score_estimation(model, x.to(rank), timesteps.to(rank))
             
             ###########################
 
             scaler.scale(loss).backward()
-            if step % ACCUMULATION == ACCUMULATION - 1:
+            if i % ACCUMULATION == ACCUMULATION - 1:
                 scaler.unscale_(optimizer)
                 #TODO option for this torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 scaler.step(optimizer)
                 scaler.update()
                 model.zero_grad()
                 scheduler.step()
+
 
             if NUM_GPUS > 1:
                 # Gather loss from all GPUs
@@ -175,6 +232,7 @@ def train_internal(rank, world_size, train_config):
             else:
                 outputs = [loss]
             
+
             # Report loss by number of examples seen
             if rank == 0:
                 outputs = [o.cpu() for o in outputs]
@@ -183,10 +241,11 @@ def train_internal(rank, world_size, train_config):
                 writer.add_scalar('Loss/Train', loss, total_examples)
                 writer.add_scalar('Learning Rate', scheduler.get_last_lr()[0], total_examples)
 
+
             # Test loss
             test_every = train_config['training']['options']['test_every']
-            if step % test_every == test_every - 1:
-                test_loss = get_test_loss(model, test_dataloader)
+            if (i // ACCUMULATION) % test_every == test_every - 1:
+                test_loss = get_test_loss(model, rank, test_dataloader, test_iter, train_config)
 
                 if NUM_GPUS > 1:
                     outputs = [None for _ in range(world_size)]
@@ -250,6 +309,8 @@ if __name__ == '__main__':
 
     if arguments['train']:
         train(arguments['--train-config'])
+    elif arguments['inference']:
+        sample.inference_main(arguments['<model-file>'], arguments['--train-config'])
 
 
 

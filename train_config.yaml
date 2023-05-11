@@ -3,15 +3,16 @@ setup:
 
 training:
   parallelism:
-    num_gpus: 1
-    accumulate_batches: 2
-    batch_size: 16
+    num_gpus: 2
+    accumulate_batches: 1
+    batch_size: 32
 
   options:
-    epochs: 3
+    epochs: 1
     warmup_frac: 0.1
     float16: false
-    test_every: 1000
+    test_every: 100
+    test_loss_batches: 3
 
   optimizer:
     lr: 1.0e-4
@@ -19,8 +20,8 @@ training:
 # These are passed directly to the model during initialization
 model:
   normalization_groups: 32
-  in_channels: 3
-  out_channels: 3
+  in_channels: 1
+  out_channels: 1
   channels: 256
   num_head_channels: 64
   num_residuals: 6

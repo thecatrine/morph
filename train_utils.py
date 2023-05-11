@@ -10,7 +10,7 @@ import dataset as d
 # RSI double check this
 def scheduler_function(step, warmup_frac, loader_batch_size, epochs, N, parallelism, accumulation):
         single_gpu_batch = loader_batch_size * accumulation
-        single_gpu_examples = epochs * N / parallelism
+        single_gpu_examples = epochs * N * loader_batch_size / parallelism
         total_steps = math.ceil(single_gpu_examples / single_gpu_batch)
 
         frac = step / total_steps
