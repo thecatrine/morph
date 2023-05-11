@@ -2,7 +2,7 @@
 
 Usage:
     morph.py train [--train-config=<train-config>]
-    morph.py fake-train [--bar=<bar>]
+    morph.py fake-train [--train-config=<train-config>]
 
 Options:
     -h --help                       Show this screen.
@@ -28,11 +28,16 @@ import model_utils as mu
 
 # Setup for distributed training
 
+MASTER_PORT = str(random.randint(10000, 20000))
+
 def setup_parallel(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = str(random.randint(10000, 20000))
+    os.environ['MASTER_PORT'] = MASTER_PORT
+    os.environ['WORLD_SIZE'] = str(world_size)
 
+    print("Initializing process group...")
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    print("Process group initialized.")
 
 def cleanup_parallel():
     dist.destroy_process_group()
@@ -44,15 +49,18 @@ C_NUM_GPUS = 'num_gpus'
 
 # Training
 def train_setup(rank, train_config):
-    LOG_DIR = os.path.join('runs', train_config[C_RUN_NAME])
+    RAW_LOG_DIR = os.path.join('runs', train_config['setup'][C_RUN_NAME])
+    RAW_MODEL_DIR = os.path.join('models', train_config['setup'][C_RUN_NAME])
+
+    LOG_DIR = RAW_LOG_DIR
+    MODEL_DIR = RAW_MODEL_DIR
     i = 2
-    while os.path.exists(LOG_DIR):
-        LOG_DIR += f"_{i}"
+    while os.path.exists(LOG_DIR) or os.path.exists(MODEL_DIR):
+        LOG_DIR =f"{RAW_LOG_DIR}_{i}"
+        MODEL_DIR = f"{RAW_MODEL_DIR}_{i}"
         i += 1
     
     os.makedirs(LOG_DIR)
-
-    MODEL_DIR = os.path.join('models', train_config[C_RUN_NAME])
     os.makedirs(MODEL_DIR)
 
     train_config.update({
@@ -68,11 +76,13 @@ def train_setup(rank, train_config):
 
 def train_internal(rank, world_size, train_config):
     # Create directories and setup tensorboard
+    NUM_GPUS = world_size
+    setup_parallel(rank, world_size)
+
     if rank == 0:
         writer = train_setup(rank, train_config)
 
     BATCH_SIZE = train_config['training']['parallelism']['batch_size']
-    NUM_GPUS = train_config['training']['parallelism']['num_gpus']
     ACCUMULATION = train_config['training']['parallelism']['accumulate_batches']
 
     loader_batch_size = BATCH_SIZE // NUM_GPUS // ACCUMULATION
@@ -106,12 +116,13 @@ def train_internal(rank, world_size, train_config):
         lambda e: train_utils.scheduler_function(
             e,
             WARMUP_FRACTION,
-            loader_batch_size=loader_batch_size
+            loader_batch_size=loader_batch_size,
             epochs=EPOCHS,
             N=len(train_dataloader),
             parallelism=NUM_GPUS,
             accumulation=ACCUMULATION,
         )
+    )
 
     FLOAT_16 = train_config['training']['options']['float16']
     train_dtype = torch.float16 if FLOAT_16 else torch.float32
@@ -139,7 +150,8 @@ def train_internal(rank, world_size, train_config):
             ###########################
             # CUSTOM LOSS LOGIC :O    #
             ###########################
-            x = batch[0]
+
+            x = batch['pixels']
             timesteps = torch.rand((x.shape[0],))
 
             with torch.autocast(device_type='cuda', dtype=train_dtype):
@@ -215,17 +227,19 @@ def train_internal(rank, world_size, train_config):
 
 
 def train(train_config_path):
+    # TODO: Let arguments or env vars shadow config, but remember to clearly signpost it
     with open(train_config_path) as f:
         train_config = yaml.safe_load(f)
 
-        if train_config[C_NUM_GPUS] == 1:
+        NUM_GPUS = train_config['training']['parallelism'][C_NUM_GPUS]
+        print("NUM_GPUS", NUM_GPUS)
+        if  NUM_GPUS == 1:
             train_internal(rank=0, world_size=1, train_config=train_config)
         else:
-            setup_parallel()
             mp.spawn(
                 train_internal,
-                args=(train_config[C_NUM_GPUS], train_config),
-                nprocs=train_config[C_NUM_GPUS],
+                args=(NUM_GPUS, train_config),
+                nprocs=NUM_GPUS,
             )
 
     

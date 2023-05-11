@@ -5,6 +5,8 @@ from torch.utils.data.dataloader import DataLoader
 
 import math
 
+import dataset as d
+
 # RSI double check this
 def scheduler_function(step, warmup_frac, loader_batch_size, epochs, N, parallelism, accumulation):
         single_gpu_batch = loader_batch_size * accumulation
@@ -25,7 +27,7 @@ def prepare_dataset(
     pin_memory=False, 
     num_workers=0
 ):
-    dataset = dataset.get_datasets()
+    dataset = d.get_datasets()
 
     dataset_train = split_dataset_by_node(dataset['train'], rank, world_size)
     dataset_test = split_dataset_by_node(dataset['test'], rank, world_size)
