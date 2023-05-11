@@ -14,6 +14,7 @@ from docopt import docopt
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 import tqdm
 import yaml
@@ -116,6 +117,14 @@ def train_internal(rank, world_size, train_config):
     train_dtype = torch.float16 if FLOAT_16 else torch.float32
     scaler = torch.cuda.amp.GradScaler()
 
+    # Setup for parallelism
+    print(f"{rank}: Moving model to rank")
+    model = model.to(rank).train()
+
+    print(f"{rank}: DDP")
+    model = DDP(model, device_ids=[rank])#, output_device=rank)#, find_unused_parameters=True)
+    print(f"{rank}: Done with DDP")
+
     # TODO maybe cleaner here
     total_examples = 0
     lowest_loss = 10e10
@@ -127,11 +136,16 @@ def train_internal(rank, world_size, train_config):
             total_examples += loader_batch_size
             # TODO This is still not general, fix this with a dataset utility or something
             # Or else customize it by hand so it's not clunky
+            ###########################
+            # CUSTOM LOSS LOGIC :O    #
+            ###########################
             x = batch[0]
             timesteps = torch.rand((x.shape[0],))
 
             with torch.autocast(device_type='cuda', dtype=train_dtype):
                 loss = mu.denoising_score_estimation(model, x.to(device), timesteps.to(device))
+            
+            ###########################
 
             scaler.scale(loss).backward()
             if step % ACCUMULATION == ACCUMULATION - 1:
@@ -146,8 +160,6 @@ def train_internal(rank, world_size, train_config):
                 # Gather loss from all GPUs
                 outputs = [None for _ in range(world_size)]
                 dist.all_gather_object(outputs, loss)
-                if rank == 0:
-                    outputs = [o.cpu() for o in outputs]
             else:
                 outputs = [loss]
             
@@ -156,9 +168,50 @@ def train_internal(rank, world_size, train_config):
                 outputs = [o.cpu() for o in outputs]
                 loss = torch.mean(torch.stack(outputs))
 
-                writer.add_scalar('train_loss', loss, total_examples)
-                writer.add_scalar('lr', scheduler.get_last_lr()[0], total_examples)
+                writer.add_scalar('Loss/Train', loss, total_examples)
+                writer.add_scalar('Learning Rate', scheduler.get_last_lr()[0], total_examples)
 
+            # Test loss
+            test_every = train_config['training']['options']['test_every']
+            if step % test_every == test_every - 1:
+                test_loss = get_test_loss(model, test_dataloader)
+
+                if NUM_GPUS > 1:
+                    outputs = [None for _ in range(world_size)]
+                    dist.all_gather_object(outputs, test_loss)
+                else:
+                    outputs = [test_loss]
+
+                if rank == 0:
+                    outputs = [o.cpu() for o in outputs]
+                    test_loss = torch.mean(torch.stack(outputs))
+
+                    writer.add_scalar('Loss/Test', test_loss, total_examples)
+
+                    if test_loss < lowest_loss:
+                        print("Saving best model. Loss=", test_loss)
+                        train_utils.save_state(
+                            epoch=epoch,
+                            test_loss=test_loss,
+                            model=model.module, # model.module here because of DPP
+                            optimizer=optimizer,
+                            scheduler=scheduler,
+                            file=os.path.join(train_config['MODEL_DIR'], f'model_best.pt'), 
+                        )
+
+    # Save at end of training as well
+    if rank == 0:
+        train_utils.save_state(
+            epoch=epoch,
+            test_loss=test_loss,
+            model=model.module,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            file=os.path.join(train_config['MODEL_DIR'], f'model_last.pt'), 
+        )
+
+    if NUM_GPUS > 1:
+        cleanup_parallel()
 
 
 def train(train_config_path):
@@ -168,6 +221,7 @@ def train(train_config_path):
         if train_config[C_NUM_GPUS] == 1:
             train_internal(rank=0, world_size=1, train_config=train_config)
         else:
+            setup_parallel()
             mp.spawn(
                 train_internal,
                 args=(train_config[C_NUM_GPUS], train_config),
