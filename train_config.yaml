@@ -9,8 +9,19 @@ training:
 
   options:
     epochs: 3
-    learning_rate: 1e-4
-    warmup_frac: 0.1 
+    warmup_frac: 0.1
+    float16: false
 
+  optimizer:
+    lr: 1.0e-4
+
+# These are passed directly to the model during initialization
 model:
-  foo: 1
+  normalization_groups: 32
+  in_channels: 3
+  out_channels: 3
+  channels: 256
+  num_head_channels: 64
+  num_residuals: 6
+  channel_multiple_schedule: [1, 2, 3]
+  interior_attention: 1
