@@ -99,7 +99,7 @@ def toimage(foo):
 # CUSTOM INFERENCE LOGIC HERE :O #
 ##################################
 
-def sample_from(model, start, steps=1000):
+def sample_from(model, start, steps=100):
     with torch.no_grad():
         end = continuous_sampling(model, start.to(device), steps)
     return end
@@ -117,16 +117,16 @@ def images_as_grid(end):
 
     all_ims = (torch.cat(columns, dim=1).cpu())
     #return Image.fromarray(einops.rearrange((all_ims*256).to(torch.uint8), 'c x y -> x y c').numpy())
-    return Image.fromarray(all_ims.squeeze(0).cpu().numpy())
+    return Image.fromarray(all_ims.squeeze(0).cpu().numpy()*255.0)
 
-def inference(model, N, train_config):
+def inference(model, N, train_config, output_filename):
     start = torch.randn((N, train_config['model']['in_channels'], 32, 32)).to(device)*50.0
 
     end = sample_from(model, start)
 
     grid_image = images_as_grid(end)
 
-    grid_image.convert("RGB").save('temp.png')
+    grid_image.convert("RGB").save(output_filename)
 
     return end, grid_image
 
@@ -136,7 +136,7 @@ def inference(model, N, train_config):
 
 # %%
 
-def inference_main(model_file, train_config_filename):
+def inference_main(model_file, train_config_filename, output_filename="inference.png"):
     with open(train_config_filename) as f:
             train_config = yaml.safe_load(f)
 
@@ -146,6 +146,6 @@ def inference_main(model_file, train_config_filename):
     model.load_state_dict(saved['model'])
     model.eval()
 
-    return inference(model, 10, train_config)
+    return inference(model, 10, train_config, output_filename)
 
 # %%
