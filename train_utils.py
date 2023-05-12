@@ -9,11 +9,12 @@ import dataset as d
 
 # RSI double check this
 def scheduler_function(step, warmup_frac, loader_batch_size, epochs, N, parallelism, accumulation):
-        single_gpu_batch = loader_batch_size * accumulation
-        single_gpu_examples = epochs * N * loader_batch_size / parallelism
-        total_steps = math.ceil(single_gpu_examples / single_gpu_batch)
+        total_steps = math.ceil((epochs * N) / accumulation)
 
         frac = step / total_steps
+
+        #print(f"Total Steps: {total_steps}")
+        #print(f"Step: {step}, Total Steps: {total_steps}, Frac: {frac}")
 
         if frac < warmup_frac:
             return frac / warmup_frac
@@ -32,6 +33,7 @@ def prepare_dataset(
     dataset_train = split_dataset_by_node(dataset['train'], rank, world_size)
     dataset_test = split_dataset_by_node(dataset['test'], rank, world_size)
 
+    # TODO: drop last and ignore last batch?
     train_dataloader = DataLoader(
         dataset_train,
         batch_size=batch_size,

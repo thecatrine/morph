@@ -99,7 +99,7 @@ def toimage(foo):
 # CUSTOM INFERENCE LOGIC HERE :O #
 ##################################
 
-def sample_from(model, start, steps=100):
+def sample_from(model, start, steps=1000):
     with torch.no_grad():
         end = continuous_sampling(model, start.to(device), steps)
     return end

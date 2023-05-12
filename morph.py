@@ -200,7 +200,9 @@ def train_internal(rank, world_size, train_config):
         loader = iter(train_dataloader)
 
         for i, batch in enumerate(tqdm.tqdm(loader)):
-            total_examples += loader_batch_size
+            # TODO: What happens with partial batches?
+            total_examples += loader_batch_size*NUM_GPUS
+
             # TODO This is still not general, fix this with a dataset utility or something
             # Or else customize it by hand so it's not clunky
             ###########################

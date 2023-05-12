@@ -105,7 +105,11 @@ class InvokeFunction(nn.Module):
 # Implementation of loss for denoising score estimation
 # TODO: Find reference for this in the paper
 
-MAX_SIGMA = 50
+# I think 50 is too high for MNIST but these settings were for emoji, and I wanted a reference that you could
+# get from datasets. Bump this down?
+
+#MAX_SIGMA = 50
+MAX_SIGMA = 1
 MIN_SIGMA = 0.01
 def sigma(t):
     B = np.log(MAX_SIGMA)
