@@ -9,7 +9,7 @@ import dataset as d
 
 # RSI double check this
 def scheduler_function(step, warmup_frac, loader_batch_size, epochs, N, parallelism, accumulation):
-        total_steps = math.ceil((epochs * N) / accumulation)
+        total_steps = math.ceil(N / accumulation)
 
         frac = step / total_steps
 
