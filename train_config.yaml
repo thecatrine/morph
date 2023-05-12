@@ -8,10 +8,10 @@ training:
     batch_size: 32
 
   options:
-    epochs: 1
+    epochs: 3
     warmup_frac: 0.1
     float16: false
-    test_every: 100
+    test_every: 500
     test_loss_batches: 3
 
   optimizer:

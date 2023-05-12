@@ -152,9 +152,10 @@ def train_internal(rank, world_size, train_config):
     
     # Scheduler and Scaler
     # TODO: What if train_dataloader doesn't have a clean len for streaming or something
-
     EPOCHS = train_config['training']['options']['epochs']
     WARMUP_FRACTION = train_config['training']['options']['warmup_frac']
+    N = len(train_dataloader)*EPOCHS
+
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, 
         lambda e: train_utils.scheduler_function(
@@ -162,7 +163,7 @@ def train_internal(rank, world_size, train_config):
             WARMUP_FRACTION,
             loader_batch_size=loader_batch_size,
             epochs=EPOCHS,
-            N=len(train_dataloader),
+            N=N,
             parallelism=NUM_GPUS,
             accumulation=ACCUMULATION,
         )
