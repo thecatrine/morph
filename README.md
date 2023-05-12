@@ -9,7 +9,9 @@ Currently everything is set up for the model I was working on at the time, which
 
 ## Usage
 
-python morph.py -h
+    python morph.py -h
 
-python morph.py train
-python morph.py train --train-config=alternate_config.yaml
+    python morph.py train
+    python morph.py train --train-config=alternate_config.yaml
+
+    python morph.py inference model.pth --train-config=alternal_config.yaml
