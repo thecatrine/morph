@@ -114,13 +114,15 @@ def images_as_grid(end):
         if len(row) == DIM:
             columns.append(torch.cat(row, dim=2))
             row = []
+    #if row != []:
+    #    columns.append(torch.cat(row, dim=2))
 
     all_ims = (torch.cat(columns, dim=1).cpu())
     #return Image.fromarray(einops.rearrange((all_ims*256).to(torch.uint8), 'c x y -> x y c').numpy())
     return Image.fromarray(all_ims.squeeze(0).cpu().numpy()*255.0)
 
 def inference(model, N, train_config, output_filename):
-    start = torch.randn((N, train_config['model']['in_channels'], 32, 32)).to(device)*50.0
+    start = torch.randn((N, train_config['model']['in_channels'], 32, 32)).to(device)*mu.MAX_SIGMA
 
     end = sample_from(model, start)
 
@@ -146,6 +148,6 @@ def inference_main(model_file, train_config_filename, output_filename="inference
     model.load_state_dict(saved['model'])
     model.eval()
 
-    return inference(model, 10, train_config, output_filename)
+    return inference(model, 16, train_config, output_filename)
 
 # %%

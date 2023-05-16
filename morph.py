@@ -97,9 +97,12 @@ def get_test_loss(model, device, test_loader, test_iter, train_config):
             # CUSTOM LOSS LOGIC :O    #
             ###########################
 
-            x = batch['pixels'].unsqueeze(1)
-            timesteps = torch.rand((x.shape[0],))
-            loss = mu.denoising_score_estimation(model, x.to(device), timesteps.to(device))
+            x = batch.to(device)            
+            sigmas = mu.noise_distribution((x.shape[0], 1, 1, 1)).to(device)
+
+            loss = mu.new_denoising_score_estimation(model, x, sigmas)
+
+            test_loss += loss.item()
             
             ###########################
 
@@ -208,14 +211,14 @@ def train_internal(rank, world_size, train_config):
             ###########################
             # CUSTOM LOSS LOGIC :O    #
             ###########################
+            #import ipdb; ipdb.set_trace()
 
-            x = batch['pixels'].unsqueeze(1)
-            
-            timesteps = torch.rand((x.shape[0],))
+            x = batch.to(rank)            
+            sigmas = mu.noise_distribution((x.shape[0], 1, 1, 1)).to(rank)
 
             with torch.autocast(device_type='cuda', dtype=train_dtype):
-                loss = mu.denoising_score_estimation(model, x.to(rank), timesteps.to(rank))
-            
+                loss = mu.new_denoising_score_estimation(model, x, sigmas)
+
             ###########################
 
             scaler.scale(loss).backward()

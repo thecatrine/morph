@@ -28,10 +28,13 @@ def prepare_dataset(
     pin_memory=False, 
     num_workers=0
 ):
+    print("Loading dataset...")
     dataset = d.get_datasets()
 
-    dataset_train = split_dataset_by_node(dataset['train'], rank, world_size)
-    dataset_test = split_dataset_by_node(dataset['test'], rank, world_size)
+    print("Preparing dataset...")
+    dataset_train = dataset['train'][rank::world_size] #split_dataset_by_node(dataset['train'], rank, world_size)
+    dataset_test = dataset['test'][rank::world_size] #split_dataset_by_node(dataset['test'], rank, world_size)
+
 
     # TODO: drop last and ignore last batch?
     train_dataloader = DataLoader(

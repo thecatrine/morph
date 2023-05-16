@@ -1,17 +1,19 @@
+# Global configuration
 setup:
   run_name: test
 
+# Training Settings
 training:
   parallelism:
     num_gpus: 2
     accumulate_batches: 1
-    batch_size: 32
+    batch_size: 64
 
   options:
-    epochs: 3
+    epochs: 1
     warmup_frac: 0.1
     float16: false
-    test_every: 500
+    test_every: 100
     test_loss_batches: 3
 
   optimizer:
@@ -20,8 +22,8 @@ training:
 # These are passed directly to the model during initialization
 model:
   normalization_groups: 32
-  in_channels: 1
-  out_channels: 1
+  in_channels: 3
+  out_channels: 3
   channels: 256
   num_head_channels: 64
   num_residuals: 6

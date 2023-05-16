@@ -100,7 +100,60 @@ class InvokeFunction(nn.Module):
 
     def forward(self, *a, **kw):
         return self.function(*(a + self.a), **{**kw, **self.kw})
-        
+    
+
+# Parameters from Karras et al 2022
+
+sigma_min = 0.002
+sigma_max = 80
+sigma_data = 0.5
+rho = 7
+P_mean = -1.2
+P_std = 1.2
+
+def sigma(t):
+    return t
+
+def c_skip(sigma):
+    return (sigma_data**2) / (sigma**2 + sigma_data**2)
+
+def c_out(sigma):
+    return (sigma*sigma_data) / th.sqrt(sigma_data**2 + sigma**2)
+
+def c_in(sigma):
+    return 1 / th.sqrt(sigma_data**2 + sigma**2)
+
+def c_noise(sigma):
+    return 0.25*th.log(sigma)
+
+def noise_distribution(shape):
+    noise = th.randn(shape) * P_std + P_mean
+
+    return th.exp(noise)
+
+def loss_weighting(sigma):
+    (sigma**2 + sigma_data**2) / (sigma * sigma_data)**2
+
+
+def D_theta(model, sigma, x):
+    cond_x = c_in(sigma) * x
+    cond_sigma = c_noise(sigma)
+
+    #import ipdb; ipdb.set_trace()
+    return c_skip(sigma) * x + c_out(sigma)*model(cond_x, cond_sigma.reshape((-1,)))
+
+def new_denoising_score_estimation(score_net, samples, sigmas):
+    #reshaped_sigmas = sigmas.reshape(samples.shape[0], 1, 1, 1)
+
+    #import ipdb; ipdb.set_trace()
+    z = th.randn_like(samples)
+    noise = z*sigmas
+
+    scores = D_theta(score_net, sigmas, samples + noise)
+
+    loss = 0.5 * th.square(scores*sigmas + z)
+
+    return loss.mean()
 
 # Implementation of loss for denoising score estimation
 # TODO: Find reference for this in the paper
