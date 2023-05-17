@@ -1,13 +1,14 @@
 """Morph
 
 Usage:
-    morph.py train [--train-config=<train-config>]
+    morph.py train [--train-config=<train-config>] [--starting-model=<starting-model-file>]
     morph.py fake-train [--train-config=<train-config>]
     morph.py inference <model-file> [--train-config=<train-config>]
 
 Options:
     -h --help                       Show this screen.
     -c --train-config FILE          Path to training config file [default: train_config.yaml]
+    -s --starting-model FILE        Path to starting model file [default: None]
 """
 
 from docopt import docopt
@@ -98,7 +99,7 @@ def get_test_loss(model, device, test_loader, test_iter, train_config):
             ###########################
 
             x = batch.to(device)            
-            sigmas = mu.noise_distribution((x.shape[0], 1, 1, 1)).to(device)
+            sigmas = mu.noise_distribution((x.shape[0],)).to(device)
 
             loss = mu.new_denoising_score_estimation(model, x, sigmas)
 
@@ -109,7 +110,7 @@ def get_test_loss(model, device, test_loader, test_iter, train_config):
     model.train()
     return torch.tensor(test_loss / N)
 
-def train_internal(rank, world_size, train_config):
+def train_internal(rank, world_size, train_config, starting_model_path):
     # Create directories and setup tensorboard
     NUM_GPUS = world_size
     setup_parallel(rank, world_size)
@@ -142,6 +143,14 @@ def train_internal(rank, world_size, train_config):
 
     model = m.get_model(train_config)
     optimizer_config = train_config['training']['optimizer']
+
+    if starting_model_path is None:
+        print("STARTING TRAINING FROM SCRATCH")
+    else:
+        print("STARTING TRAINING FROM MODEL")
+        saved = torch.load(starting_model_path)
+        model.load_state_dict(saved['model'])
+        print("NOT RESUMING OPTIMIZER")
 
     # Adjust the learning rate for the grad accumulation
     optimizer_config['lr'] /= ACCUMULATION
@@ -214,7 +223,7 @@ def train_internal(rank, world_size, train_config):
             #import ipdb; ipdb.set_trace()
 
             x = batch.to(rank)            
-            sigmas = mu.noise_distribution((x.shape[0], 1, 1, 1)).to(rank)
+            sigmas = mu.noise_distribution((x.shape[0],)).to(rank)
 
             with torch.autocast(device_type='cuda', dtype=train_dtype):
                 loss = mu.new_denoising_score_estimation(model, x, sigmas)
@@ -291,7 +300,7 @@ def train_internal(rank, world_size, train_config):
         cleanup_parallel()
 
 
-def train(train_config_path):
+def train(train_config_path, starting_model_path):
     # TODO: Let arguments or env vars shadow config, but remember to clearly signpost it
     with open(train_config_path) as f:
         train_config = yaml.safe_load(f)
@@ -299,11 +308,11 @@ def train(train_config_path):
         NUM_GPUS = train_config['training']['parallelism'][C_NUM_GPUS]
         print("NUM_GPUS", NUM_GPUS)
         if  NUM_GPUS == 1:
-            train_internal(rank=0, world_size=1, train_config=train_config)
+            train_internal(rank=0, world_size=1, train_config=train_config, starting_model_path=starting_model_path)
         else:
             mp.spawn(
                 train_internal,
-                args=(NUM_GPUS, train_config),
+                args=(NUM_GPUS, train_config, starting_model_path),
                 nprocs=NUM_GPUS,
             )
 
@@ -313,8 +322,12 @@ if __name__ == '__main__':
     arguments = docopt(__doc__)
     print(arguments)
 
+    starting_model = None
+    if arguments['--starting-model'] != 'None':
+        starting_model = arguments['--starting-model']
+
     if arguments['train']:
-        train(arguments['--train-config'])
+        train(arguments['--train-config'], starting_model)
     elif arguments['inference']:
         sample.inference_main(arguments['<model-file>'], arguments['--train-config'])
 

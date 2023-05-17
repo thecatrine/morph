@@ -105,8 +105,11 @@ class InvokeFunction(nn.Module):
 # Parameters from Karras et al 2022
 
 sigma_min = 0.002
-sigma_max = 80
-sigma_data = 0.5
+sigma_max = 80.0
+
+# Our data is scaled so I think 1 is correct here?
+sigma_data = 1
+
 rho = 7
 P_mean = -1.2
 P_std = 1.2
@@ -154,38 +157,5 @@ def new_denoising_score_estimation(score_net, samples, sigmas):
     loss = th.square(scores - samples)
 
     loss = loss_weighting(sigmas) * loss
-
-    return loss.mean()
-
-# Implementation of loss for denoising score estimation
-# TODO: Find reference for this in the paper
-
-# I think 50 is too high for MNIST but these settings were for emoji, and I wanted a reference that you could
-# get from datasets. Bump this down?
-
-#MAX_SIGMA = 50
-MAX_SIGMA = 1
-MIN_SIGMA = 0.01
-def sigma(t):
-    B = np.log(MAX_SIGMA)
-    A = np.log(MIN_SIGMA)
-
-    C = (B-A)*t + A
-
-    return th.exp(C)
-
-def denoising_score_estimation(score_net, samples, timesteps):
-    sigmas = sigma(timesteps)
-    #import ipdb; ipdb.set_trace()
-
-    reshaped_sigmas = sigmas.reshape(samples.shape[0], 1, 1, 1)
-
-    z = th.randn_like(samples)
-    noise = z*reshaped_sigmas
-    
-    # Rescale output of score net by 1/sigma
-    scores = score_net(samples + noise, timesteps) / reshaped_sigmas
-
-    loss = 0.5 * th.square(scores*reshaped_sigmas + z)
 
     return loss.mean()

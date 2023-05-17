@@ -75,27 +75,6 @@ def old_continuous_sampling(m, samples, steps):
 # B = np.log(mu.MAX_SIGMA)
 # A = np.log(mu.MIN_SIGMA)
 
-MIN_SIGMA = 0.01
-MAX_SIGMA = 50
-def sigma(t):
-    return MIN_SIGMA * (MAX_SIGMA / MIN_SIGMA) ** t
-
-B = np.log(MAX_SIGMA)
-A = np.log(MIN_SIGMA)
-
-def dsigmadt(t):
-    return (B-A) * sigma(t)
-
-# Taken from code in paper.
-# Had a mismatch between g(t) and g(t)^2 before after rewrite
-def dsig(t):
-    s = sigma(t)
-    diffusion = s * torch.sqrt(torch.tensor(2 * (B - A),
-                                                device=device))
-    
-    return diffusion
-
-
 def toimage(foo):
     return Image.fromarray(einops.rearrange(((foo)*256).to(torch.uint8), 'c x y -> x y c').cpu().numpy())
 
@@ -108,40 +87,50 @@ def toimage(foo):
 #    p = mu.rho
 #    return (mu.sigma_max**(1/p) + (i/(N-1))*(mu.sigma_min**(1/p) - mu.sigma_max**(1/p)))**p
 
-def old_ti(i, N=100):
-    return 1 - (i/(N-1))
 
-def mid_ti(i, N=100):
-    return MAX_SIGMA**2*(MIN_SIGMA**2 / MAX_SIGMA**2)**(i/(N-1))
+def new_ti(i, N=100):
+    p = 7
+    sigma_min = mu.sigma_min
+    sigma_max = mu.sigma_max
 
-def mid_sigma(t):
-    return np.sqrt(t)
+    return ( sigma_max**(1/p) + (i/(N-1))*(sigma_min**(1/p) - sigma_max**(1/p)) )**p
 
-def mid_dsigmadt(t):
-    return 0.5 / np.sqrt(t)
+def new_sigma(t):
+    return t
 
 def sample_edm(model, start, steps=100):
     x = start.clone()
     for i in tqdm.tqdm(range(steps)):
-        t = old_ti(i, steps) #t_i(i, steps)
-        next_t = old_ti(i+1, steps) #t_i(i+1, steps)
+        t = new_ti(i, steps) #t_i(i, steps)
+        next_t = new_ti(i+1, steps) #t_i(i+1, steps)
 
         dt = next_t - t
         # I think it just uses sigma = t
-        #sigma = torch.Tensor([t]).reshape((1, 1, 1, 1)).to(device)
+        sigma = torch.Tensor([new_sigma(t)]).reshape((1, 1, 1, 1)).to(device)
 
-        sigma = sigma(t)
+        #sigma = new_sigma(t)*torch.ones((x.shape[0],)).to(device)
         with torch.no_grad():
-        #    D = mu.D_theta(model, sigma, x)
-            timesteps = torch.ones((x.shape[0],)).to(device)*t
-            score = model(x, timesteps) / sigma
+            D = mu.D_theta(model, sigma, x)
         # dsigma/dt = d/dt(t) = 1
         # dx = - sigma'*sigma*score * dt
-        
-        dsigmadt = dsigmadt(t) 
-        dx = -1.0*dsigmadt*sigma*score*dt
-        x += dx
 
+        score = (D - x) / sigma**2
+        
+        dsigmadt = 1
+        d = -1.0*dsigmadt*sigma*score
+        x1 = x + dt*d
+        
+        # second order correction
+        if i < (steps-1):
+            dsigmadt1 = 1
+            sigma1 = sigma = torch.Tensor([new_sigma(next_t)]).reshape((1, 1, 1, 1)).to(device)
+            
+            with torch.no_grad():
+                D1 = mu.D_theta(model, sigma1, x1)
+            dprime = dsigmadt1/sigma1*(x1 - D1)
+            x = x + dt*0.5*(d + dprime)
+        else:
+            x = x1
         #import ipdb; ipdb.set_trace()
 
     return x
@@ -167,7 +156,7 @@ def images_as_grid(end):
     #return Image.fromarray(all_ims.squeeze(0).cpu().numpy()*255.0)
 
 def inference(model, N, train_config, output_filename):
-    start = torch.randn((N, train_config['model']['in_channels'], 32, 32)).to(device)*mu.MAX_SIGMA
+    start = torch.randn((N, train_config['model']['in_channels'], 28, 28)).to(device)*mu.MAX_SIGMA
 
     end = sample_edm(model, start)
 
