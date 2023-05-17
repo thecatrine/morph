@@ -34,7 +34,7 @@ MODEL_FILE = 'models/test_5/model_best.pt'
 # This is an implementation of the sampling algorithm from the paper
 # TODO: Put reference here
 
-def continuous_sampling(m, samples, steps):
+def old_continuous_sampling(m, samples, steps):
     dt = -1 / steps
 
     x = samples.clone()
@@ -45,10 +45,11 @@ def continuous_sampling(m, samples, steps):
         dw = ( torch.randn_like(x) * np.sqrt(-dt) ).to(device)
 
         # Rescale score by 1/ sigmas
-        score = m(x, t*torch.ones((samples.shape[0],)).to(device)) / sigma(t)
+        with torch.no_grad():
+            score = m(x, t*torch.ones((samples.shape[0],)).to(device)) / sigma(t)
 
 
-        gt = diffusion(t)
+        gt = dsig(t)
         dx = -1.0*(gt**2)*score*dt + gt*dw
 
         #import pdb; pdb.set_trace()
@@ -68,19 +69,26 @@ def continuous_sampling(m, samples, steps):
     return x
 
 # Sigma schedule based on timestep
+# def sigma(t):
+#     return mu.MIN_SIGMA * (mu.MAX_SIGMA / mu.MIN_SIGMA) ** t
+
+# B = np.log(mu.MAX_SIGMA)
+# A = np.log(mu.MIN_SIGMA)
+
+MIN_SIGMA = 0.01
+MAX_SIGMA = 50
 def sigma(t):
-    return mu.MIN_SIGMA * (mu.MAX_SIGMA / mu.MIN_SIGMA) ** t
+    return MIN_SIGMA * (MAX_SIGMA / MIN_SIGMA) ** t
 
-B = np.log(mu.MAX_SIGMA)
-A = np.log(mu.MIN_SIGMA)
+B = np.log(MAX_SIGMA)
+A = np.log(MIN_SIGMA)
 
-# Partially calculated a derivative of a term by hand for a gaussian
-def dsigmasquared(t):
-    return 2*(B-A)*sigma(t)
+def dsigmadt(t):
+    return (B-A) * sigma(t)
 
 # Taken from code in paper.
 # Had a mismatch between g(t) and g(t)^2 before after rewrite
-def diffusion(t):
+def dsig(t):
     s = sigma(t)
     diffusion = s * torch.sqrt(torch.tensor(2 * (B - A),
                                                 device=device))
@@ -96,33 +104,42 @@ def toimage(foo):
 # CUSTOM INFERENCE LOGIC HERE :O #
 ##################################
 
-def t_i(i, N=100):
-    p = mu.rho
-    return (mu.sigma_max**(1/p) + (i/(N-1))*(mu.sigma_min**(1/p) - mu.sigma_max**(1/p)))**p
+#def t_i(i, N=100):
+#    p = mu.rho
+#    return (mu.sigma_max**(1/p) + (i/(N-1))*(mu.sigma_min**(1/p) - mu.sigma_max**(1/p)))**p
+
+def old_ti(i, N=100):
+    return 1 - (i/(N-1))
+
+def mid_ti(i, N=100):
+    return MAX_SIGMA**2*(MIN_SIGMA**2 / MAX_SIGMA**2)**(i/(N-1))
+
+def mid_sigma(t):
+    return np.sqrt(t)
+
+def mid_dsigmadt(t):
+    return 0.5 / np.sqrt(t)
 
 def sample_edm(model, start, steps=100):
-    dt = -1 / steps
     x = start.clone()
     for i in tqdm.tqdm(range(steps)):
-        t = t_i(i, steps)
-        next_t = t_i(i+1, steps)
+        t = old_ti(i, steps) #t_i(i, steps)
+        next_t = old_ti(i+1, steps) #t_i(i+1, steps)
 
         dt = next_t - t
         # I think it just uses sigma = t
-        sigma = torch.Tensor([t]).reshape((1, 1, 1, 1)).to(device)
+        #sigma = torch.Tensor([t]).reshape((1, 1, 1, 1)).to(device)
+
+        sigma = sigma(t)
         with torch.no_grad():
         #    D = mu.D_theta(model, sigma, x)
-            timesteps = sigma**2 * torch.ones((x.shape[0],)).to(x.device)
-            #import ipdb; ipdb.set_trace()
-            print(x.shape, timesteps.shape)
-            score = model(x, *timesteps) / sigma
+            timesteps = torch.ones((x.shape[0],)).to(device)*t
+            score = model(x, timesteps) / sigma
         # dsigma/dt = d/dt(t) = 1
         # dx = - sigma'*sigma*score * dt
-        dsigmadt = 1
-        # score = 
-
-        dx = -1*(sigma)*(score)*dt
-
+        
+        dsigmadt = dsigmadt(t) 
+        dx = -1.0*dsigmadt*sigma*score*dt
         x += dx
 
         #import ipdb; ipdb.set_trace()
