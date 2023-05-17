@@ -132,7 +132,7 @@ def noise_distribution(shape):
     return th.exp(noise)
 
 def loss_weighting(sigma):
-    (sigma**2 + sigma_data**2) / (sigma * sigma_data)**2
+    return (sigma**2 + sigma_data**2) / (sigma * sigma_data)**2
 
 
 def D_theta(model, sigma, x):
@@ -151,7 +151,9 @@ def new_denoising_score_estimation(score_net, samples, sigmas):
 
     scores = D_theta(score_net, sigmas, samples + noise)
 
-    loss = 0.5 * th.square(scores*sigmas + z)
+    loss = th.square(scores - samples)
+
+    loss = loss_weighting(sigmas) * loss
 
     return loss.mean()
 

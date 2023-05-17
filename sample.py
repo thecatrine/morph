@@ -20,13 +20,10 @@ from PIL import Image
 
 # %%
 
-def get_model(train_config):
-    m.get_model(train_config).eval()
-
 device = torch.device('cuda')
 
 CHANNELS = 3
-MODEL_FILE = 'model_latest_loss.pth'
+MODEL_FILE = 'models/test_5/model_best.pt'
 #MODEL_FILE = 'model_latest_mnist.pth'
 
 
@@ -99,11 +96,41 @@ def toimage(foo):
 # CUSTOM INFERENCE LOGIC HERE :O #
 ##################################
 
-def sample_from(model, start, steps=1000):
-    with torch.no_grad():
-        end = continuous_sampling(model, start.to(device), steps)
-    return end
+def t_i(i, N=100):
+    p = mu.rho
+    return (mu.sigma_max**(1/p) + (i/(N-1))*(mu.sigma_min**(1/p) - mu.sigma_max**(1/p)))**p
 
+def sample_edm(model, start, steps=100):
+    dt = -1 / steps
+    x = start.clone()
+    for i in tqdm.tqdm(range(steps)):
+        t = t_i(i, steps)
+        next_t = t_i(i+1, steps)
+
+        dt = next_t - t
+        # I think it just uses sigma = t
+        sigma = torch.Tensor([t]).reshape((1, 1, 1, 1)).to(device)
+        with torch.no_grad():
+        #    D = mu.D_theta(model, sigma, x)
+            timesteps = sigma**2 * torch.ones((x.shape[0],)).to(x.device)
+            #import ipdb; ipdb.set_trace()
+            print(x.shape, timesteps.shape)
+            score = model(x, *timesteps) / sigma
+        # dsigma/dt = d/dt(t) = 1
+        # dx = - sigma'*sigma*score * dt
+        dsigmadt = 1
+        # score = 
+
+        dx = -1*(sigma)*(score)*dt
+
+        x += dx
+
+        #import ipdb; ipdb.set_trace()
+
+    return x
+
+
+import loaders.loader_utils as lu
 
 def images_as_grid(end):
     DIM = math.ceil(math.sqrt(end.shape[0]))
@@ -118,13 +145,14 @@ def images_as_grid(end):
     #    columns.append(torch.cat(row, dim=2))
 
     all_ims = (torch.cat(columns, dim=1).cpu())
+    return lu.tensor_to_image(all_ims)
     #return Image.fromarray(einops.rearrange((all_ims*256).to(torch.uint8), 'c x y -> x y c').numpy())
-    return Image.fromarray(all_ims.squeeze(0).cpu().numpy()*255.0)
+    #return Image.fromarray(all_ims.squeeze(0).cpu().numpy()*255.0)
 
 def inference(model, N, train_config, output_filename):
     start = torch.randn((N, train_config['model']['in_channels'], 32, 32)).to(device)*mu.MAX_SIGMA
 
-    end = sample_from(model, start)
+    end = sample_edm(model, start)
 
     grid_image = images_as_grid(end)
 
@@ -138,15 +166,19 @@ def inference(model, N, train_config, output_filename):
 
 # %%
 
-def inference_main(model_file, train_config_filename, output_filename="inference.png"):
+def get_model(model_file, train_config_filename):
     with open(train_config_filename) as f:
             train_config = yaml.safe_load(f)
 
     model = m.get_model(train_config).to(device)
     saved = torch.load(model_file)
-
     model.load_state_dict(saved['model'])
     model.eval()
+
+    return model, train_config
+
+def inference_main(model_file, train_config_filename, output_filename="inference.png"):
+    model, train_config = get_model(model_file, train_config_filename)
 
     return inference(model, 16, train_config, output_filename)
 
