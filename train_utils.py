@@ -43,7 +43,7 @@ def prepare_dataset(
         pin_memory=pin_memory,
         num_workers=num_workers,
         drop_last=False,
-        shuffle=False,
+        shuffle=True,
         sampler=None,
     )
     
@@ -53,7 +53,7 @@ def prepare_dataset(
         pin_memory=pin_memory,
         num_workers=num_workers,
         drop_last=False,
-        shuffle=False,
+        shuffle=True,
         sampler=None,
     )
 

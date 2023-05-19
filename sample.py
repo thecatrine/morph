@@ -135,6 +135,55 @@ def sample_edm(model, start, steps=100):
 
     return x
 
+def sample_edm_stochastic(model, start, steps=100, S_churn=1, S_noise=1.01, S_min=0.2, S_max=0.8):
+    x = start.clone()
+    for i in tqdm.tqdm(range(steps)):
+        t = new_ti(i, steps) #t_i(i, steps)
+        next_t = new_ti(i+1, steps) #t_i(i+1, steps)
+
+        # I think it just uses sigma = t
+        sigma = torch.Tensor([new_sigma(t)]).reshape((1, 1, 1, 1)).to(device)
+
+        # stochastic part I don't understand yet
+        epsilon = torch.randn_like(x)*S_noise
+        if t >= S_min and t <= S_max:
+            gamma_i = min(S_churn/steps, np.sqrt(2) - 1)
+        else:
+            gamma_i = 0
+
+        t_hat = t + gamma_i*t
+        x = x + np.sqrt(t_hat**2 - t**2)*epsilon
+        t = t_hat
+
+        dt = next_t - t
+
+        #sigma = new_sigma(t)*torch.ones((x.shape[0],)).to(device)
+        with torch.no_grad():
+            D = mu.D_theta(model, sigma, x)
+        # dsigma/dt = d/dt(t) = 1
+        # dx = - sigma'*sigma*score * dt
+
+        score = (D - x) / sigma**2
+        
+        dsigmadt = 1
+        d = -1.0*dsigmadt*sigma*score
+        x1 = x + dt*d
+
+        # second order correction
+        if i < (steps-1):
+            dsigmadt1 = 1
+            sigma1 = sigma = torch.Tensor([new_sigma(next_t)]).reshape((1, 1, 1, 1)).to(device)
+            
+            with torch.no_grad():
+                D1 = mu.D_theta(model, sigma1, x1)
+            dprime = dsigmadt1/sigma1*(x1 - D1)
+            x = x + dt*0.5*(d + dprime)
+        else:
+            x = x1
+        #import ipdb; ipdb.set_trace()
+
+    return x
+
 
 import loaders.loader_utils as lu
 

@@ -99,7 +99,7 @@ def get_test_loss(model, device, test_loader, test_iter, train_config):
             ###########################
 
             x = batch.to(device)            
-            sigmas = mu.noise_distribution((x.shape[0],)).to(device)
+            sigmas = mu.noise_distribution((x.shape[0], 1, 1, 1)).to(device)
 
             loss = mu.new_denoising_score_estimation(model, x, sigmas)
 
@@ -144,13 +144,15 @@ def train_internal(rank, world_size, train_config, starting_model_path):
     model = m.get_model(train_config)
     optimizer_config = train_config['training']['optimizer']
 
-    if starting_model_path is None:
-        print("STARTING TRAINING FROM SCRATCH")
-    else:
-        print("STARTING TRAINING FROM MODEL")
-        saved = torch.load(starting_model_path)
-        model.load_state_dict(saved['model'])
-        print("NOT RESUMING OPTIMIZER")
+    def load_model():
+        if starting_model_path is None:
+            print("STARTING TRAINING FROM SCRATCH")
+        else:
+            print("STARTING TRAINING FROM MODEL", starting_model_path)
+            saved = torch.load(starting_model_path, map_location=torch.device('cuda', rank))
+            model.load_state_dict(saved['model'],)
+            print("NOT RESUMING OPTIMIZER")
+    load_model()
 
     # Adjust the learning rate for the grad accumulation
     optimizer_config['lr'] /= ACCUMULATION
@@ -223,9 +225,10 @@ def train_internal(rank, world_size, train_config, starting_model_path):
             #import ipdb; ipdb.set_trace()
 
             x = batch.to(rank)            
-            sigmas = mu.noise_distribution((x.shape[0],)).to(rank)
+            sigmas = mu.noise_distribution((x.shape[0], 1, 1, 1)).to(rank)
 
             with torch.autocast(device_type='cuda', dtype=train_dtype):
+                #import ipdb; ipdb.set_trace()
                 loss = mu.new_denoising_score_estimation(model, x, sigmas)
 
             ###########################
@@ -275,6 +278,7 @@ def train_internal(rank, world_size, train_config, starting_model_path):
                     writer.add_scalar('Loss/Test', test_loss, total_examples)
 
                     if test_loss < lowest_loss:
+                        lowest_loss = test_loss
                         print("Saving best model. Loss=", test_loss)
                         train_utils.save_state(
                             epoch=epoch,
