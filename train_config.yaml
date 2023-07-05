@@ -10,7 +10,7 @@ training:
     batch_size: 64
 
   options:
-    epochs: 5
+    epochs: 10
     warmup_frac: 0.1
     float16: false
     test_every: 100
