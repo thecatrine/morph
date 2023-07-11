@@ -10,9 +10,11 @@ import yaml
 
 import math
 
-import model as m
-import model_utils as mu
-import train_utils
+from .loaders import loader_utils as lu
+from . import model as m
+from . import model_utils as mu
+
+#from . import train_utils
 # %%
 # Problem specific imports
 
@@ -185,8 +187,6 @@ def sample_edm_stochastic(model, start, steps=100, S_churn=1, S_noise=1.01, S_mi
     return x
 
 
-import loaders.loader_utils as lu
-
 def images_as_grid(end):
     DIM = math.ceil(math.sqrt(end.shape[0]))
     columns = []
@@ -204,10 +204,13 @@ def images_as_grid(end):
     #return Image.fromarray(einops.rearrange((all_ims*256).to(torch.uint8), 'c x y -> x y c').numpy())
     #return Image.fromarray(all_ims.squeeze(0).cpu().numpy()*255.0)
 
-def inference(model, N, train_config, output_filename):
-    start = torch.randn((N, train_config['model']['in_channels'], 28, 28)).to(device)*mu.MAX_SIGMA
+def inference(model, N, train_config, output_filename, seed=None):
+    if seed is not None:
+        torch.manual_seed(seed)
 
-    end = sample_edm(model, start)
+    start = torch.randn((N, train_config['model']['in_channels'], 28, 28)).to(device)*mu.sigma_max
+
+    end = sample_edm_stochastic(model, start, steps=30)
 
     grid_image = images_as_grid(end)
 

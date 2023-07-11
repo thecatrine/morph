@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import logging
 
-import model_utils as utils
+from . import model_utils as utils
 
 log = logging.getLogger(__name__)
 

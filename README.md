@@ -1,3 +1,9 @@
+# Twitch Emotes with Score-Based Generative Modeling
+
+Reference from https://catd.ai/2023-5-15-training-score/
+
+![A 10 by 10 grid of generated twitch emotes](temp_1.png)
+
 # Morph
 
 # Intro

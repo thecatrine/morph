@@ -5,6 +5,7 @@ from sklearn.preprocessing import StandardScaler
 #from loaders import twitch
 import random
 import torch
+import os
 import pickle
 
 def batch_generator(image_generator, batch_size, max_timesteps=150):
@@ -42,7 +43,8 @@ def batch_generator(image_generator, batch_size, max_timesteps=150):
 
 class Whitener:
     def __init__(self):
-        with open('loaders/constants/scaler.p', 'rb') as f:
+        saved_path = os.path.join(os.path.dirname(__file__), 'constants/scaler.p')
+        with open(saved_path, 'rb') as f:
             self.scaler = pickle.load(f)
 
     def a(self, orig, func):
