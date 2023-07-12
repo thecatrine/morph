@@ -4,6 +4,8 @@ Reference from https://catd.ai/2023-5-15-training-score/
 
 ![A 10 by 10 grid of generated twitch emotes](temp_1.png)
 
+[Interactive Demo](http://www.thisemotedoesnotexist.com)
+
 # Morph
 
 # Intro
